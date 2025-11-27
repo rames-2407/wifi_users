@@ -1,0 +1,113 @@
+body {
+    background: linear-gradient(135deg, #edeff4 0%, hsl(270, 33%, 96%) 100%);
+    min-height: 100vh;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.container {
+    border-radius: 10px;
+    padding: 10px;
+    margin-top: 10px;
+}
+
+.form-container {
+
+    border-radius: 15px;
+    padding: 30px;
+    margin-top: 35px;
+}
+
+.card {
+    border: none;
+    border-radius: 12px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+}
+
+.navbar {
+    border-radius: 0;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.btn {
+    border-radius: 8px;
+    padding: 8px 16px;
+}
+
+.form-control, .form-select {
+    border-radius: 8px;
+}
+
+.form-control:focus, .form-select:focus {
+    border-color: #4154f1;
+    box-shadow: 0 0 0 0.2rem rgba(65, 84, 241, 0.25);
+}
+
+.table {
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.alert {
+    border-radius: 10px;
+    border: none;
+}
+
+code {
+    background: #f8f9fa;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 0.9em;
+}
+
+.badge {
+    font-size: 0.8em;
+    padding: 6px 10px;
+}
+
+body {
+    background-color: #f8f9fa;
+    font-family: 'Segoe UI', sans-serif;
+}
+
+#flash-container {
+    max-width: 450px;
+}
+
+h2, h5 {
+    font-weight: 600;
+}
+
+.card {
+    border-radius: 1.5rem;
+}
+
+.badge {
+    font-size: 0.85rem;
+    padding: 0.5em 0.75em;
+}
+
+.table th, .table td {
+    vertical-align: middle;
+    padding: 0.75rem;
+}
+
+.btn-outline-danger {
+    transition: 0.3s;
+}
+
+.btn-outline-danger:hover {
+    background-color: #dc3545;
+    color: white;
+}
+
+.btn-outline-primary:hover {
+    background-color: #0d6efd;
+    color: white;
+}
+
+.alert {
+    margin-top: 1rem;
+    font-size: 0.95rem;
+    padding: 0.75rem 1rem;
+    border-radius: 0.75rem;
+}

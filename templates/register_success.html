@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container text-center mt-5 p-4">
+    <div class="card p-4 shadow-sm border rounded">
+        <h2 class="text-success mb-4">🎉 User Registered Successfully</h2>
+
+        <div class="mb-3">
+            <label class="fw-bold">Username</label>
+            <div class="input-group justify-content-center">
+                <input id="username" class="form-control text-center w-auto" readonly value="{{ username }}">
+                <button class="btn btn-outline-secondary copy-btn" onclick="copyToClipboard('username', this)">📋</button>
+            </div>
+        </div>
+
+        <div class="mb-4">
+            <label class="fw-bold">Password</label>
+            <div class="input-group justify-content-center">
+                <input id="password" class="form-control text-center w-auto" readonly value="{{ password }}">
+                <button class="btn btn-outline-secondary copy-btn" onclick="copyToClipboard('password', this)">📋</button>
+            </div>
+        </div>
+
+        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-primary">Back to Dashboard</a>
+    </div>
+</div>
+
+<div class="toast-container position-fixed top-0 end-0 p-3">
+    <div id="copyToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="toast-header">
+            <span id="toastIcon" class="me-2">✅</span>
+            <strong class="me-auto" id="toastTitle">Success</strong>
+            <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+        <div class="toast-body" id="toastMessage">
+            Content copied to clipboard!
+        </div>
+    </div>
+</div>
+
+<style>
+.copy-btn {
+    transition: all 0.2s ease;
+}
+
+.copy-btn:hover {
+    transform: scale(1.05);
+}
+
+.copy-btn.success {
+    background-color: #28a745;
+    color: white;
+    border-color: #28a745;
+}
+
+.copy-btn.error {
+    background-color: #dc3545;
+    color: white;
+    border-color: #dc3545;
+}
+</style>
+
+<script>
+// Modern async clipboard copy function
+async function copyToClipboard(elementId, btn) {
+    const input = document.getElementById(elementId);
+    const text = input.value;
+    
+    // Store original button content
+    const originalText = btn.innerHTML;
+    const originalClasses = btn.className;
+    
+    try {
+        // Method 1: Modern Clipboard API (preferred)
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            showCopySuccess(btn, originalText, originalClasses, text);
+            return;
+        }
+        
+        // Method 2: Fallback using document.execCommand (deprecated but still works)
+        if (document.execCommand) {
+            const success = await fallbackCopyMethod(text);
+            if (success) {
+                showCopySuccess(btn, originalText, originalClasses, text);
+                return;
+            }
+        }
+        
+        // Method 3: Final fallback - show manual copy instruction
+        throw new Error('Clipboard access not available');
+        
+    } catch (err) {
+        console.error('Copy failed:', err);
+        showCopyError(btn, originalText, originalClasses, text);
+    }
+}
+
+// Fallback copy method using execCommand
+function fallbackCopyMethod(text) {
+    return new Promise((resolve) => {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-999999px';
+        textarea.style.top = '-999999px';
+        document.body.appendChild(textarea);
+        
+        textarea.focus();
+        textarea.select();
+        
+        try {
+            const result = document.execCommand('copy');
+            document.body.removeChild(textarea);
+            resolve(result);
+        } catch (err) {
+            document.body.removeChild(textarea);
+            resolve(false);
+        }
+    });
+}
+
+function showCopySuccess(btn, originalText, originalClasses, copiedText) {
+    // Update button
+    btn.innerHTML = '✅ Copied!';
+    btn.className = originalClasses.replace('btn-outline-secondary', 'btn-success');
+    
+    // Show toast notification
+    showToast('✅', 'Success', `Copied: ${copiedText}`, 'success');
+    
+    // Reset button after delay
+    setTimeout(() => {
+        btn.innerHTML = originalText;
+        btn.className = originalClasses;
+    }, 2000);
+}
+
+function showCopyError(btn, originalText, originalClasses, text) {
+    // Update button
+    btn.innerHTML = '❌ Failed';
+    btn.className = originalClasses.replace('btn-outline-secondary', 'btn-danger');
+    
+    // Show toast with manual copy instruction
+    showToast('❌', 'Copy Failed', `Please select and copy manually: ${text}`, 'error');
+    
+    // Also select the text for easy manual copying
+    const input = document.getElementById(btn.onclick.toString().match(/'([^']+)'/)[1]);
+    if (input) {
+        input.focus();
+        input.select();
+    }
+    
+    // Reset button after delay
+    setTimeout(() => {
+        btn.innerHTML = originalText;
+        btn.className = originalClasses;
+    }, 3000);
+}
+
+function showToast(icon, title, message, type) {
+    const toastElement = document.getElementById('copyToast');
+    const toastIcon = document.getElementById('toastIcon');
+    const toastTitle = document.getElementById('toastTitle');
+    const toastMessage = document.getElementById('toastMessage');
+    
+    // Update toast content
+    toastIcon.textContent = icon;
+    toastTitle.textContent = title;
+    toastMessage.textContent = message;
+    
+    // Update toast styling based on type
+    const toastHeader = toastElement.querySelector('.toast-header');
+    toastHeader.className = 'toast-header';
+    if (type === 'error') {
+        toastHeader.classList.add('bg-danger', 'text-white');
+    } else {
+        toastHeader.classList.add('bg-success', 'text-white');
+    }
+    
+    // Show the toast
+    if (typeof bootstrap !== 'undefined' && bootstrap.Toast) {
+        const toast = new bootstrap.Toast(toastElement, {
+            delay: 4000
+        });
+        toast.show();
+    } else {
+        // Fallback: simple show/hide
+        toastElement.style.display = 'block';
+        toastElement.style.opacity = '1';
+        setTimeout(() => {
+            toastElement.style.opacity = '0';
+            setTimeout(() => {
+                toastElement.style.display = 'none';
+            }, 300);
+        }, 4000);
+    }
+}
+
+// Check clipboard permissions on page load
+document.addEventListener('DOMContentLoaded', function() {
+    // Check if clipboard is available
+    if (!navigator.clipboard) {
+        console.warn('Clipboard API not supported. Will use fallback methods.');
+    }
+    
+    // Check permissions (optional)
+    if (navigator.permissions && navigator.permissions.query) {
+        navigator.permissions.query({ name: "clipboard-write" }).then((result) => {
+            if (result.state === "granted") {
+                console.log("Clipboard write permission granted");
+            } else if (result.state === "prompt") {
+                console.log("Clipboard write permission will be prompted");
+            } else {
+                console.log("Clipboard write permission denied");
+            }
+        }).catch(() => {
+            // Permissions API not supported, continue anyway
+        });
+    }
+    
+    // Auto-select text on focus
+    const inputs = document.querySelectorAll('#username, #password');
+    inputs.forEach(input => {
+        input.addEventListener('focus', function() {
+            this.select();
+        });
+    });
+});
+
+// Also add click to select functionality
+document.addEventListener('DOMContentLoaded', function() {
+    const inputs = document.querySelectorAll('#username, #password');
+    inputs.forEach(input => {
+        input.addEventListener('click', function() {
+            this.select();
+        });
+    });
+});
+</script>
+{% endblock %}

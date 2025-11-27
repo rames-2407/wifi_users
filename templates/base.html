@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}WiFi Portal{% endblock %}</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
+</head>
+<body>
+
+    <!-- Navbar -->
+    <nav class="navbar navbar-light" style="background-color: #e3f2fd;">
+        <div class="container d-flex align-items-center justify-content-between">
+            <img src="{{ url_for('static', filename='images/mss_logo.png') }}"
+                 alt="MSS Logo"
+                 style="max-height: 80px;">
+            {% if show_portal_title %}
+                <a class="navbar-brand" href="#" style="color: #121420;">📶 WiFi Portal</a>
+            {% endif %}
+            {% if session.get('admin_logged_in') and not hide_nav_links %}
+            <div class="d-flex gap-2">
+                <a href="{{ url_for('admin_dashboard') }}" class="btn btn-primary">Dashboard</a>
+                <a href="{{ url_for('register_user') }}" class="btn btn-success">Add User</a>
+                <a href="{{ url_for('admin_logout') }}" class="btn btn-danger">Logout</a>
+            </div>
+            {% endif %}
+        </div>
+    </nav>
+
+    <!-- Page Content -->
+    <div class="container mt-5">
+        {% block content %}{% endblock %}
+    </div>
+
+    <div id="flash-container" class="position-fixed top-0 end-0 p-3" style="z-index: 1055;">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                <div class="toast align-items-center text-white bg-{{ 'danger' if category == 'error' else category }} border-0 show mb-2" role="alert">
+                    <div class="d-flex">
+                        <div class="toast-body">
+                            {{ message }}
+                        </div>
+                        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+                    </div>
+                </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

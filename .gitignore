@@ -1,0 +1,5 @@
+venv
+test.py
+config.py
+.qudo
+__pycache__
