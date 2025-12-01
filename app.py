@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.secret_key = 'admin@123'
 
-
 @app.route('/')
 def index():
     return redirect(url_for('admin_login'))
@@ -213,8 +212,11 @@ def register_user():
                     flash('User registered successfully!', 'success')
                     return redirect(url_for('register_success'))
                 else:
+                    session['new_username'] = username
+                    session['scheduled_user'] = True
+                    session['start_date'] = start_date
                     flash(f'User registered successfully! Password will be sent on {start_date} @ 12AM.', 'info')
-                    return redirect(url_for('admin_dashboard'))
+                    return redirect(url_for('register_success'))
             else:
                 flash('User saved but RADIUS setup failed!', 'warning')
         else:
@@ -231,13 +233,17 @@ def register_success():
 
     username = session.pop('new_username', None)
     password = session.pop('new_password', None)
+    scheduled_user = session.pop('scheduled_user', False)
+    start_date = session.pop('start_date', None)
 
-    if not username or not password:
+    if not username or (not password and not scheduled_user):
         flash('No registration data found!', 'warning')
         return redirect(url_for('admin_dashboard'))
 
     return render_template('register_success.html',
                            username=username, password=password,
+                           scheduled_user=scheduled_user,
+                           start_date=start_date,
                            show_portal_title=False)
 
 

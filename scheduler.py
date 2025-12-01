@@ -31,7 +31,7 @@ def get_db_connection():
         return None
 
 def send_email(to_email, username, password, start_date):
-    subject = "Your WiFi Access Credentials"
+    subject = "WiFi Access Credentials"
     body = f"""
     Hello,
 
@@ -74,14 +74,12 @@ def process_scheduled_users():
         cursor = conn.cursor(dictionary=True)
         today = datetime.now().date()
         
-        # Find users whose start_date has arrived (or passed) and password hasn't been sent
         query = """
         SELECT id, full_name, email, username, password, start_date 
         FROM users 
         WHERE start_date IS NOT NULL 
         AND start_date <= %s 
         AND password_sent = FALSE
-        AND is_deleted = FALSE
         """
         cursor.execute(query, (today,))
         users = cursor.fetchall()
@@ -91,7 +89,6 @@ def process_scheduled_users():
         for user in users:
             logger.info(f"Processing user: {user['username']}")
             if send_email(user['email'], user['username'], user['password'], user['start_date']):
-                # Update password_sent status
                 update_query = "UPDATE users SET password_sent = TRUE WHERE id = %s"
                 cursor.execute(update_query, (user['id'],))
                 conn.commit()
