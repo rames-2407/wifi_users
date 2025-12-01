@@ -33,11 +33,13 @@ body {
     padding: 8px 16px;
 }
 
-.form-control, .form-select {
+.form-control,
+.form-select {
     border-radius: 8px;
 }
 
-.form-control:focus, .form-select:focus {
+.form-control:focus,
+.form-select:focus {
     border-color: #4154f1;
     box-shadow: 0 0 0 0.2rem rgba(65, 84, 241, 0.25);
 }
@@ -73,7 +75,8 @@ body {
     max-width: 450px;
 }
 
-h2, h5 {
+h2,
+h5 {
     font-weight: 600;
 }
 
@@ -86,7 +89,8 @@ h2, h5 {
     padding: 0.5em 0.75em;
 }
 
-.table th, .table td {
+.table th,
+.table td {
     vertical-align: middle;
     padding: 0.75rem;
 }

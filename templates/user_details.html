@@ -1,0 +1,49 @@
+{% extends "admin_base.html" %}
+{% block content %}
+
+<div class="container mt-4">
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="text-primary fw-bold">👤 User Details</h3>
+        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary btn-sm">
+            ⬅ Back to Dashboard
+        </a>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-body">
+
+            {% if user %}
+            <h5 class="mb-3 text-secondary">Connected Users List</h5>
+            <div class="table-responsive">
+                <table class="table table-hover table-bordered text-center">
+                    <thead class="table-light">
+                        <tr>
+                            <th>SI No</th>
+                            <th>Name</th>
+                            <th>Connected At</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for u in user %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td>{{ u.name }}</td>
+                            <td>{{ u.created_at.strftime('%d-%m-%Y %H:%M:%S') if u.created_at else 'N/A' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="alert alert-warning text-center" role="alert">
+                No connected users found.
+            </div>
+            {% endif %}
+
+        </div>
+    </div>
+
+</div>
+
+{% endblock %}
