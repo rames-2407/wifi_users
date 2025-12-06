@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% block title %}Admin Dashboard{% endblock %}
-
 {% block content %}
 
 <style>
@@ -11,91 +10,34 @@
         border-bottom: none !important;
         padding: 0 10px;
     }
-
     .custom-tabs .nav-link {
         flex: 1;
         text-align: center;
         font-weight: 600;
         font-size: 15px;
-
         background: #ffffff;
         color: #ad0def;
         padding: 12px 0;
-
         border-radius: 14px;
         border: 1px solid #d1deff;
         transition: all 0.35s ease-in-out;
-
         position: relative;
         overflow: hidden;
     }
-
-    /* Hover */
     .custom-tabs .nav-link:hover {
         background: #e9f2ff;
         color: #0043be;
         transform: translateY(-2px);
         box-shadow: 0 3px 10px rgba(0, 82, 217, 0.15);
     }
-
-    /* Ripple animation */
-    .custom-tabs .nav-link:after {
-        content: "";
-        position: absolute;
-        background: rgba(0, 83, 217, 0.15);
-        width: 0;
-        height: 0;
-        border-radius: 50%;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        transition: width 0.45s ease, height 0.45s ease;
-    }
-
-    .custom-tabs .nav-link:hover:after {
-        width: 220%;
-        height: 550%;
-    }
-
-    /* Active state */
     .custom-tabs .nav-link.active {
         background: linear-gradient(90deg, #9d4edd);
         color: #ffffff !important;
         border-color: transparent;
-        transform: scale(1.06);
+        transform: scale(1.05);
         box-shadow: 0 6px 18px rgba(0, 115, 255, 0.35);
     }
-
-    /* Animated underline */
-    .custom-tabs .nav-link.active::before {
-        content: "";
-        position: absolute;
-        bottom: 0;
-        left: 50%;
-        width: 0;
-        height: 4px;
-        background: #ff09ca;
-        border-radius: 10px;
-        transform: translateX(-50%);
-        animation: tabLine 0.35s ease forwards;
-    }
-
-    @keyframes tabLine {
-        from {
-            width: 0;
-        }
-
-        to {
-            width: 80%;
-        }
-    }
-
-    /* Slight bounce when clicked */
-    .custom-tabs .nav-link:active {
-        transform: scale(0.97);
-    }
 </style>
-
 
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2 class="text-primary fw-bold">👥 User Management</h2>
@@ -113,7 +55,6 @@
 </div>
 
 <div class="card shadow-sm border-0 rounded-4">
-
     <div class="card-header bg-light border-bottom">
         <h5 class="mb-0 text-dark fw-semibold">📋 Users ({{ total_users }})</h5>
     </div>
@@ -122,15 +63,15 @@
     <ul class="nav nav-tabs custom-tabs mb-3">
         <li class="nav-item flex-fill">
             <a class="nav-link {% if active_tab == 'SMVRCH' %}active{% endif %}"
-                href="{{ url_for('admin_dashboard', tab='SMVRCH') }}">SMVRCH Network</a>
+               href="{{ url_for('admin_dashboard', tab='SMVRCH') }}">SMVRCH Network</a>
         </li>
         <li class="nav-item flex-fill">
             <a class="nav-link {% if active_tab == 'NGO' %}active{% endif %}"
-                href="{{ url_for('admin_dashboard', tab='NGO') }}">NGO Network</a>
+               href="{{ url_for('admin_dashboard', tab='NGO') }}">NGO Network</a>
         </li>
         <li class="nav-item flex-fill">
             <a class="nav-link {% if active_tab == 'GUEST' %}active{% endif %}"
-                href="{{ url_for('admin_dashboard', tab='GUEST') }}">Guest Users</a>
+               href="{{ url_for('admin_dashboard', tab='GUEST') }}">Guest Users</a>
         </li>
     </ul>
 
@@ -145,8 +86,10 @@
                         <th>Email</th>
                         <th>Mobile</th>
                         <th>Created at</th>
-
-                        {% if active_tab != 'GUEST' %}
+                        {% if active_tab == 'GUEST' %}
+                        <th>Registered Users</th>
+                        <th>Action</th>
+                        {% else %}
                         <th>Password</th>
                         <th>Username</th>
                         <th>Bandwidth</th>
@@ -160,52 +103,43 @@
                 <tbody class="text-center">
                     {% for user in users %}
                     <tr class="user-row">
-                        <td>{{ (page - 1) * 25 + loop.index }}</td>
+                        <td>{{ (page-1)*25 + loop.index }}</td>
                         <td>{{ user.full_name }}</td>
                         <td>{{ user.email }}</td>
                         <td>{{ user.mobile }}</td>
                         <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M:%S') if user.created_at else 'N/A' }}</td>
 
                         {% if active_tab == 'GUEST' %}
-                        {% set count = 0 %}
-                        {% for uc in user_count %}
-                        {% if uc.user_id == user.id %}
-                        {% set count = uc.sub_user_count %}
-                        {% endif %}
-                        {% endfor %}
-                        <td><span class="badge bg-info">{{ count }}</span></td>
+                        <td><span class="badge bg-info">{{ user.sub_user_count or 0 }}</span></td>
                         <td>
-                            <a href="{{ url_for('admin/view_details', user_id=user.id) }}"
-                                class="btn btn-sm btn-outline-primary">
+                            <a href="{{ url_for('view_details', user_id=user.user_id) }}"
+                               class="btn btn-sm btn-outline-primary">
                                 View Details
                             </a>
                         </td>
-                        {% endif %}
-
-                        {% if active_tab != 'GUEST' %}
-                        <td><span class="badge bg-secondary">{{ user.username }}</span></td>
-                        <td><span class="badge bg-secondary">{{ user.password }}</span></td>
+                        {% else %}
+                        <td>
+                            {% if user.start_date and not user.password_sent %}
+                                <span class="text-muted">Password sent via email</span>
+                            {% else %}
+                                {{ user.password }}
+                            {% endif %}
+                        </td>
+                        <td>{{ user.username }}</td>
                         <td>{{ user.bandwidth_mbps }} Mbps</td>
                         <td>{{ user.expiration_hours }}h</td>
-
                         <td>
                             {% if not user.is_active %}
                             <span class="badge bg-success">Active</span>
                             {% else %}
-                            <span class="badge bg-danger">Inactive</span>
+                            <span class="badge bg-danger">Expired</span>
                             {% endif %}
                         </td>
-
                         <td>
-                            {% if user.network in ['SMVRCH', 'NGO'] %}
                             <form method="POST" action="{{ url_for('delete_user', user_id=user.id) }}"
-                                onsubmit="return confirm('Are you sure you want to delete this user?')"
-                                style="display:inline;">
-                                <button type="submit" class="btn btn-sm btn-outline-danger">🗑️</button>
+                                  onsubmit="return confirm('Are you sure?')" style="display:inline;">
+                                <button class="btn btn-sm btn-outline-danger">🗑️</button>
                             </form>
-                            {% else %}
-                            <span class="text-muted">-</span>
-                            {% endif %}
                         </td>
                         {% endif %}
                     </tr>
@@ -219,50 +153,31 @@
     <!-- PAGINATION -->
     {% if total_pages > 1 %}
     <div class="card-footer bg-light border-top">
-        <nav aria-label="Page navigation" class="d-flex justify-content-center">
+        <nav aria-label="Pagination" class="d-flex justify-content-center">
             <ul class="pagination mb-0">
-
-                <!-- Previous Button -->
                 <li class="page-item {% if page <= 1 %}disabled{% endif %}">
                     <a class="page-link"
-                        href="{{ url_for('admin_dashboard', tab=active_tab, search=search_term, page=page-1) if page > 1 else '#' }}">
-                        Previous
+                       href="{{ url_for('admin_dashboard', tab=active_tab, search=search_term, page=page-1) }}">Prev</a>
+                </li>
+
+                {% for p in range(1, total_pages+1) %}
+                <li class="page-item {% if p == page %}active{% endif %}">
+                    <a class="page-link"
+                       href="{{ url_for('admin_dashboard', tab=active_tab, search=search_term, page=p) }}">
+                       {{ p }}
                     </a>
                 </li>
+                {% endfor %}
 
-                <!-- Page Numbers -->
-                {% for p in range(1, total_pages + 1) %}
-                {% if p == page %}
-                <li class="page-item active">
-                    <span class="page-link">{{ p }}</span>
+                <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
+                    <a class="page-link"
+                       href="{{ url_for('admin_dashboard', tab=active_tab, search=search_term, page=page+1) }}">Next</a>
                 </li>
-                {% elif total_pages <= 5 or (p>= page - 2 and p <= page + 2) or p==1 or p==total_pages %} <li
-                        class="page-item">
-                        <a class="page-link"
-                            href="{{ url_for('admin_dashboard', tab=active_tab, search=search_term, page=p) }}">
-                            {{ p }}
-                        </a>
-                        </li>
-                        {% elif (p == 2 and page > 4) or (p == total_pages - 1 and page < total_pages - 3) %} <li
-                            class="page-item disabled">
-                            <span class="page-link">...</span>
-                            </li>
-                            {% endif %}
-                            {% endfor %}
-
-                            <!-- Next Button -->
-                            <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
-                                <a class="page-link"
-                                    href="{{ url_for('admin_dashboard', tab=active_tab, search=search_term, page=page+1) if page < total_pages else '#' }}">
-                                    Next
-                                </a>
-                            </li>
             </ul>
         </nav>
-
         <div class="text-center text-muted small mt-2">
-            Showing <strong>{{ ((page-1) * 25) + 1 }}</strong> to
-            <strong>{{ min(page * 25, total_users) }}</strong> of
+            Showing <strong>{{ ((page-1)*25)+1 }}</strong> to
+            <strong>{{ min(page*25, total_users) }}</strong> of
             <strong>{{ total_users }}</strong> users
         </div>
     </div>
@@ -270,12 +185,11 @@
 </div>
 
 <script>
-    document.addEventListener("DOMContentLoaded", function () {
-        const rows = document.querySelectorAll(".user-row");
-        rows.forEach((row, index) => {
-            row.style.animationDelay = `${index * 0.05}s`;
-        });
-    });
+document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll(".user-row").forEach((r, i) =>
+        r.style.animationDelay = `${i * 0.03}s`
+    );
+});
 </script>
 
 {% endblock %}

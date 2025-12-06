@@ -1,34 +1,65 @@
-{% extends "admin_base.html" %}
+{% extends "base.html" %}
 {% block content %}
 
 <div class="container mt-4">
 
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h3 class="text-primary fw-bold">👤 User Details</h3>
-        <a href="{{ url_for('admin_dashboard') }}" class="btn btn-secondary btn-sm">
+        <a href="{{ url_for('admin_dashboard', tab='GUEST') }}" class="btn btn-secondary btn-sm">
             ⬅ Back to Dashboard
         </a>
     </div>
 
-    <div class="card shadow-sm">
-        <div class="card-body">
+    {% if user %}
 
-            {% if user %}
-            <h5 class="mb-3 text-secondary">Connected Users List</h5>
+    <!-- Primary User Info Card -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="mb-0">📋 Primary User Information</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <p><strong>Name:</strong> {{ user.primary_user.full_name or user.primary_user.username }}</p>
+                    <p><strong>Email:</strong> {{ user.primary_user.email or 'N/A' }}</p>
+                </div>
+                <div class="col-md-6">
+                    <p><strong>Mobile:</strong> {{ user.primary_user.mobile }}</p>
+                    <p><strong>Registered:</strong> {{ user.primary_user.created_at.strftime('%d-%m-%Y %H:%M:%S') if
+                        user.primary_user.created_at else 'N/A' }}</p>
+                </div>
+            </div>
+            <div class="alert alert-info mt-3 mb-0">
+                <strong>Total Connected Users:</strong> {{ user.total_count }}
+            </div>
+        </div>
+    </div>
+
+    <!-- Sub-Users Table -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-light">
+            <h5 class="mb-0 text-secondary">🔗 Connected Users List</h5>
+        </div>
+        <div class="card-body">
+            {% if user.sub_users %}
             <div class="table-responsive">
                 <table class="table table-hover table-bordered text-center">
                     <thead class="table-light">
                         <tr>
                             <th>SI No</th>
                             <th>Name</th>
+                            <th>Email</th>
+                            <th>Mobile</th>
                             <th>Connected At</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for u in user %}
+                        {% for u in user.sub_users %}
                         <tr>
                             <td>{{ loop.index }}</td>
                             <td>{{ u.name }}</td>
+                            <td>{{ u.email or 'N/A' }}</td>
+                            <td>{{ u.mobile or 'N/A' }}</td>
                             <td>{{ u.created_at.strftime('%d-%m-%Y %H:%M:%S') if u.created_at else 'N/A' }}</td>
                         </tr>
                         {% endfor %}
@@ -37,12 +68,17 @@
             </div>
             {% else %}
             <div class="alert alert-warning text-center" role="alert">
-                No connected users found.
+                No connected users found for this account.
             </div>
             {% endif %}
-
         </div>
     </div>
+
+    {% else %}
+    <div class="alert alert-danger text-center" role="alert">
+        User not found.
+    </div>
+    {% endif %}
 
 </div>
 

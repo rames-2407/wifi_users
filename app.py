@@ -1,50 +1,90 @@
-import logging
+import logging,os
+from logging.handlers import RotatingFileHandler
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from database import DatabaseManager, RadiusManager, generate_username, generate_password, convert_mbps_to_bits
 from config import Config
 from datetime import datetime
 
-# Set up logging
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+LOG_DIR = os.path.join(BASE_DIR, "log")
+os.makedirs(LOG_DIR, exist_ok=True)
+
+log_formatter = logging.Formatter(
+    '%(asctime)s - %(levelname)s - %(name)s - %(message)s'
+)
+
+# App log file
+app_log_path = os.path.join(LOG_DIR, "app.log")
+file_handler = RotatingFileHandler(
+    app_log_path, maxBytes=5*1024*1024, backupCount=2
+)
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(log_formatter)
+
+# Error log file
+error_log_path = os.path.join(LOG_DIR, "error.log")
+error_handler = RotatingFileHandler(
+    error_log_path, maxBytes=5*1024*1024, backupCount=2
+)
+error_handler.setLevel(logging.ERROR)
+error_handler.setFormatter(log_formatter)
+
+# Console logs (optional)
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+console_handler.setFormatter(log_formatter)
+
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+logger.addHandler(file_handler)
+logger.addHandler(error_handler)
+logger.addHandler(console_handler)
 
 app = Flask(__name__)
 app.secret_key = 'admin@123'
 
+
 @app.route('/')
 def index():
+    logger.info("Redirect -> Admin Login")
     return redirect(url_for('admin_login'))
 
 
+# ---------------------- ADMIN LOGIN ---------------------- #
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
         username = request.form.get('username')
+        logger.info(f"Admin Login Attempt: {username}")
         password = request.form.get('password')
 
         if Config.ADMIN_CREDENTIALS.get(username) == password:
             session['admin_logged_in'] = True
             session['admin_email'] = username
-            flash('Login successful!', 'success')
+            logger.info(f"Admin Logged In: {username}")
+            flash("Login Successful!", "success")
             return redirect(url_for('admin_dashboard'))
-        else:
-            flash('Invalid credentials!', 'error')
+
+        logger.warning(f"Invalid Login Attempt: {username}")
+        flash("Invalid credentials!", "error")
 
     return render_template('login.html', hide_nav_links=True, show_portal_title=True)
 
 
 @app.route('/admin/logout')
 def admin_logout():
-    session.pop('admin_logged_in', None)
-    flash('Logged out successfully!', 'error')
+    logger.info(f"Admin logged out: {session.get('admin_email')}")
+    session.clear()
+    flash('Logged out successfully!', 'info')
     return redirect(url_for('admin_login'))
 
 
+# ---------------------- ADMIN DASHBOARD ---------------------- #
 @app.route('/admin/dashboard')
 def admin_dashboard():
     if not session.get('admin_logged_in'):
-        flash('Please log in first.', 'warning')
+        logger.warning("Unauthorized Dashboard Access Attempt")
+        flash("Please log in first!", "warning")
         return redirect(url_for('admin_login'))
 
     tab = request.args.get('tab', 'SMVRCH')
@@ -52,291 +92,245 @@ def admin_dashboard():
     page = request.args.get('page', 1, type=int)
     admin_email = session.get('admin_email')
 
-    # ---------------- FETCH USERS ---------------- #
-    if tab in ['SMVRCH', 'NGO']:
-        if search_term:
-            all_users = DatabaseManager.search_users(search_term, admin_email, tab)
-        else:
-            all_users = DatabaseManager.get_users_by_network(admin_email, tab)
+    logger.info(f"Dashboard -> Admin: {admin_email} | Tab: {tab} | Search: {search_term}")
+
+    try:
+        if tab in ['SMVRCH', 'NGO']:
+            if search_term:
+                all_users = DatabaseManager.search_users(search_term, admin_email, tab)
+                logger.info(f"Search Filter Applied | {len(all_users)} users found")
+            else:
+                all_users = DatabaseManager.get_users_by_network(admin_email, tab)
+                logger.info(f"Fetched {len(all_users)} users for network: {tab}")
+
             all_users.sort(key=lambda x: x.get('created_at') or datetime.min, reverse=True)
+            user_count = None
 
-    elif tab == 'GUEST':
-        DatabaseManager.sync_user_auth_to_all_users()
-        all_users = DatabaseManager.get_guest_users()
+        elif tab == 'GUEST':
+            logger.info("Syncing Guest User Table...")
+            DatabaseManager.sync_user_auth_to_all_users()
 
-        processed_users = []
-        user_count = []
+            all_users = DatabaseManager.get_guest_users()
+            user_count = DatabaseManager.get_users_with_count()
+            user_count_map = {u['user_id']: u['sub_user_count'] for u in user_count}
 
-        for user in all_users:
-           username = user.get('username', '')
+            processed_users = []
+            for user in all_users:
+                username = user.get('username', '')
+                full_name = username
+                created_at = None
 
-           created_at = None
-           name_part = username
+                if "_" in username:
+                    try:
+                        full_name, dt = username.rsplit("_", 1)
+                        created_at = datetime.strptime(dt, "%Y%m%d%H%M%S")
+                    except ValueError:
+                        pass
 
-           if "_" in username:
+                user['full_name'] = full_name.replace("_", " ")
+                user['created_at'] = created_at
+                user['sub_user_count'] = user_count_map.get(user['users_id'], 0)
+                uid = user.get('users_id') or user.get('user_id') or user.get('id')
+                user['user_id'] = uid
+                user['sub_user_count'] = user_count_map.get(uid, 0)
 
-               try:
-                 name_part, date_part = username.rsplit("_", 1)
-                 created_at = datetime.strptime(date_part, "%Y%m%d%H%M%S")
-               except ValueError:
-                 pass
+                processed_users.append(user)
 
-           user['full_name'] = name_part.replace("_", " ")  # format name properly
-           user['created_at'] = created_at
-           processed_users.append(user)
+            if search_term:
+                search_lower = search_term.lower()
+                processed_users = [
+                    u for u in processed_users
+                    if search_lower in u['full_name'].lower()
+                       or search_lower in str(u.get('mobile', '')).lower()
+                ]
+                logger.info(f"Guest search -> {len(processed_users)} user(s) matched")
 
+            processed_users.sort(key=lambda x: x.get('created_at') or datetime.min, reverse=True)
+            all_users = processed_users
 
-        processed_users.sort(key=lambda x: x['created_at'] or datetime.min, reverse=True)
-        if search_term:
-           search_lower = search_term.lower()
-           processed_users = [
-             u for u in processed_users
-             if search_lower in u['full_name'].lower() or search_lower in str(u.get('mobile', '')).lower()
-           ]
+        else:
+            all_users = []
+            user_count = None
+            logger.info("Unknown tab, returning empty dataset")
 
-           all_users = processed_users
+        if tab in ['SMVRCH', 'NGO']:
+            logger.info("Fetching Expiration Status from Radius...")
+            for user in all_users:
+                expiration = RadiusManager.get_user_expiration(user['username'])
+                try:
+                    expiration = datetime.strptime(expiration, "%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    expiration = None
+                user['expiration'] = expiration
+                user['is_active'] = expiration and expiration > datetime.now()
 
-        user_count = DatabaseManager.get_users_with_count()
+        items_per_page = 25
+        total_users = len(all_users)
+        total_pages = (total_users + items_per_page - 1) // items_per_page
 
-    else:
-        all_users = []
+        page = max(1, min(page, total_pages or 1))
+        start = (page - 1) * items_per_page
+        users = all_users[start:start + items_per_page]
 
-    # ---------------- PROCESS ACTIVE / INACTIVE ---------------- #
-    for user in all_users:
-        expiration = RadiusManager.get_user_expiration(user['username'])
-
-        if isinstance(expiration, str):
-            try:
-                expiration = datetime.strptime(expiration, "%Y-%m-%d %H:%M:%S")
-            except ValueError:
-                expiration = None
-
-        user['expiration'] = expiration
-        user['is_active'] = expiration and datetime.now() > expiration
-
-    # ---------------- PAGINATION ---------------- #
-    items_per_page = 25
-    total_users = len(all_users)
-    total_pages = (total_users + items_per_page - 1) // items_per_page
-
-    if page < 1:
-        page = 1
-    elif page > total_pages and total_pages > 0:
-        page = total_pages
-
-    start_idx = (page - 1) * items_per_page
-    end_idx = start_idx + items_per_page
-    users = all_users[start_idx:end_idx]
+    except Exception as e:
+        logger.exception(f"Dashboard Error: {e}")
+        flash("Error loading dashboard.", "danger")
+        users, total_pages, total_users, user_count = [], 1, 0, None
 
     return render_template(
         'dashboard.html',
         users=users,
         search_term=search_term,
         active_tab=tab,
-        show_portal_title=False,
         page=page,
         total_pages=total_pages,
         total_users=total_users,
         min=min,
         user_count=user_count,
+        show_portal_title=False
     )
 
+
+# ---------------------- USER DETAILS ---------------------- #
 @app.route('/admin/view_details/<user_id>')
 def view_details(user_id):
     if not session.get('admin_logged_in'):
         return redirect(url_for('admin_login'))
 
+    logger.info(f"Fetching Details -> User ID: {user_id}")
     user = DatabaseManager.get_user_details(user_id)
+
     if not user:
-        flash('User not found!', 'warning')
+        logger.warning(f"User Not Found -> ID: {user_id}")
+        flash("User not found!", "warning")
         return redirect(url_for('admin_dashboard'))
 
     return render_template('user_details.html', user=user)
 
-# ---------------- REGISTER USER ---------------- #
+
+# ---------------------- REGISTER USER ---------------------- #
 @app.route('/admin/register', methods=['GET', 'POST'])
 def register_user():
     if not session.get('admin_logged_in'):
         return redirect(url_for('admin_login'))
 
     if request.method == 'POST':
-        full_name = request.form['full_name']
-        email = request.form['email']
-        mobile = request.form['mobile']
-        network = request.form['network']
-        bandwidth_mbps = int(request.form['bandwidth'])
-        expiration_hours = float(request.form['expiration_hours'])
-        
-        start_date = request.form.get('start_date') or None
-        end_date = request.form.get('end_datetime') or None
-        start_time = request.form.get('start_time') or None
-        end_time = request.form.get('end_time') or None
+        try:
+            logger.info("Registering New User...")
 
-        time_interval = None
-        if start_time and end_time:
-            time_interval = f"{start_time.replace(':', '.')}-{end_time.replace(':', '.')}"
+            full_name = request.form['full_name']
+            email = request.form['email']
+            mobile = request.form['mobile']
+            network = request.form['network']
+            bandwidth_mbps = int(request.form['bandwidth'])
+            session_timeout = request.form.get('session_timeout') or None
 
-        username = generate_username(full_name)
-        password = generate_password()
-        
-        password_sent = True
+            start_date = request.form.get('start_date') or None
+            end_date = request.form.get('end_datetime') or None
+            start_time = request.form.get('start_time') or None
+            end_time = request.form.get('end_time') or None
+            no_of_devices = request.form.get('no_of_devices') or None
 
-        if start_date and end_date:
-            password_sent = False
+            time_interval = f"{start_time.replace(':', '.')}-{end_time.replace(':', '.')}" \
+                if start_time and end_time else None
+
+            # Server-side validation: start_date is mandatory if end_date is selected
+            if end_date and not start_date:
+                flash("Start Date is mandatory when End Date is selected.", "error")
+                return redirect(url_for('register_user'))
+
+            if start_date and not end_date:
+                flash("End Date is mandatory when Start Date is selected.", "error")
+                return redirect(url_for('register_user'))
+
+            username = generate_username(full_name)
             password = generate_password()
-            logger.info(f"Scheduled user, password will be sent later: {username}")
+            bandwidth_bits = convert_mbps_to_bits(bandwidth_mbps)
 
-        elif start_time and end_time:
-            time_interval = f"{start_time.replace(':','.')}-{end_time.replace(':','.')}"
-            password = generate_password()
-            logger.info(f"Time-based user, generated password: {password}")
+            logger.info(f"Generated Credentials -> User: {username}")
 
-        else:
-            password = generate_password()
-            logger.info(f"Generated password for normal user: {password}")
+            password_sent = start_date is None
 
-        bandwidth_bits = convert_mbps_to_bits(bandwidth_mbps)
+            db_status = DatabaseManager.save_user(
+                full_name, email, mobile, network, username, password,
+                bandwidth_mbps, session_timeout,
+                start_date, end_date, time_interval,
+                no_of_devices, password_sent
+            )
 
-        if DatabaseManager.save_user(full_name, email, mobile, network,
-                                     username, password, bandwidth_mbps, expiration_hours,
-                                     start_date, end_date, time_interval, password_sent):
-
-            if (RadiusManager.add_user_auth(username, password) and
+            radius_status = (
+                RadiusManager.add_user_auth(username, password) and
                 RadiusManager.add_user_bandwidth(username, bandwidth_bits) and
-                RadiusManager.add_radius_controls(username, expiration_hours, start_time, end_time, end_date) and
-                RadiusManager.add_user_network(username, network)):
+                RadiusManager.add_radius_controls(username, session_timeout, start_time, end_time, end_date) and
+                RadiusManager.no_of_devices(username, no_of_devices) and
+                RadiusManager.add_user_network(username, network)
+            )
 
-                if password_sent:
-                    session['new_username'] = username
-                    session['new_password'] = password
-                    flash('User registered successfully!', 'success')
-                    return redirect(url_for('register_success'))
+            if db_status and radius_status:
+                logger.info(f"User Registered Successfully -> {username}")
+
+                if start_date:
+                    # Scheduled user: redirect to dashboard
+                    flash("User registered successfully!", "success")
+                    return redirect(url_for('admin_dashboard'))
                 else:
-                    session['new_username'] = username
-                    session['scheduled_user'] = True
-                    session['start_date'] = start_date
-                    flash(f'User registered successfully! Password will be sent on {start_date} @ 12AM.', 'info')
-                    return redirect(url_for('register_success'))
+                    # Immediate user (no start_date): redirect to success page with credentials
+                    return redirect(url_for('register_success', username=username, password=password, scheduled_user='0'))
+
             else:
-                flash('User saved but RADIUS setup failed!', 'warning')
-        else:
-            flash('Failed to register user!', 'error')
+                logger.error(f"Failed to Register User -> {username}")
+                flash("Failed to register user!", "error")
+
+        except Exception as e:
+            logger.exception(f"Registration Error: {e}")
+            flash(f"Error occurred: {e}", "danger")
 
         return redirect(url_for('admin_dashboard'))
 
-    return render_template('register_user.html', show_portal_title=False)
+    return render_template('register_user.html')
 
-@app.route('/admin/register/success')
+
+@app.route('/admin/register_success')
 def register_success():
-    if not session.get('admin_logged_in'):
-        return redirect(url_for('admin_login'))
+    username = request.args.get('username')
+    password = request.args.get('password')
+    scheduled_user = request.args.get('scheduled_user')
 
-    username = session.pop('new_username', None)
-    password = session.pop('new_password', None)
-    scheduled_user = session.pop('scheduled_user', False)
-    start_date = session.pop('start_date', None)
-
-    if not username or (not password and not scheduled_user):
-        flash('No registration data found!', 'warning')
-        return redirect(url_for('admin_dashboard'))
-
-    return render_template('register_success.html',
-                           username=username, password=password,
-                           scheduled_user=scheduled_user,
-                           start_date=start_date,
-                           show_portal_title=False)
+    return render_template(
+        'register_success.html',
+        username=username,
+        password=password,
+        scheduled_user=scheduled_user
+    )
 
 
-# ---------------- DELETE USER ---------------- #
+# ---------------------- DELETE USER ---------------------- #
 @app.route('/admin/delete/<int:user_id>', methods=["POST"])
 def delete_user(user_id):
     if not session.get('admin_logged_in'):
         return redirect(url_for('admin_login'))
 
-    if DatabaseManager.delete_user(user_id, hard_delete=False):
-        flash('User deleted successfully!', 'success')
+    logger.info(f"Delete Request -> User ID: {user_id}")
+
+    if DatabaseManager.delete_user(user_id):
+        logger.info(f"User Deleted -> {user_id}")
+        flash("User deleted successfully!", "success")
     else:
-        flash('Failed to delete user!', 'error')
+        logger.error(f"Delete Failed -> {user_id}")
+        flash("Failed to delete user!", "error")
 
     return redirect(url_for('admin_dashboard'))
 
 
-@app.route('/admin/user/<username>/expiration')
-def check_user_expiration(username):
-    if not session.get('admin_logged_in'):
-        return redirect(url_for('admin_login'))
-
-    expiration = RadiusManager.get_user_expiration(username)
-    is_expired = RadiusManager.check_user_expired(username)
-
-    return {
-        'username': username,
-        'expiration': expiration,
-        'is_expired': is_expired
-    }
-
-
-# ---------------- SUPERADMIN ---------------- #
-@app.route('/superadmin/login', methods=['GET', 'POST'])
-def superadmin_login():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-
-        if username == 'mvgdigital' and password == 'mvg@123':
-            session['superadmin_logged_in'] = True
-            session['superadmin_username'] = username
-            flash('Login successful.', 'success')
-            return redirect(url_for('superadmin_dashboard'))
-        else:
-            flash('Invalid username or password', 'danger')
-
-    return render_template('superadmin_login.html')
-
-
-@app.route('/superadmin/dashboard')
-def superadmin_dashboard():
-    if not session.get('superadmin_logged_in'):
-        return redirect(url_for('superadmin_login'))
-
-    search_term = request.args.get('search', '')
-
-    users = (DatabaseManager.search_users(search_term)
-             if search_term else DatabaseManager.get_all_users_all_admins())
-
-    for user in users:
-        expiration_str = RadiusManager.get_user_expiration(user['username'])
-        if expiration_str:
-            try:
-                expiration_date = datetime.strptime(expiration_str, "%B %d %Y %H:%M:%S")
-                user['is_active'] = datetime.now() > expiration_date
-            except Exception:
-                user['is_active'] = False
-        else:
-            user['is_active'] = False
-
-    return render_template('superadmin_dashboard.html', users=users)
-
-
-@app.route('/superadmin/delete/<int:user_id>', methods=['POST'])
-def superadmin_delete_user(user_id, hard_delete=True):
-    if not session.get('superadmin_logged_in'):
-        return redirect(url_for('superadmin_login'))
-
-    if DatabaseManager.delete_user(user_id, hard_delete=hard_delete):
-        flash('User deleted successfully!', 'success')
-    else:
-        flash('Failed to delete user!', 'error')
-
-    return redirect(url_for('superadmin_dashboard'))
-
-
+# ---------------------- SUPERADMIN LOGOUT ---------------------- #
 @app.route('/superadmin/logout')
 def superadmin_logout():
+    logger.info("Superadmin Logged Out")
     session.clear()
     flash('You have been logged out.', 'info')
     return redirect(url_for('superadmin_login'))
 
 
 if __name__ == '__main__':
+    logger.info("Server Started -> Port 5001")
     app.run(debug=True, host='0.0.0.0', port=5001)

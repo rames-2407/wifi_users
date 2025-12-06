@@ -4,88 +4,120 @@ import uuid
 from flask import session
 import string
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 from config import Config
 import traceback
-from datetime import datetime, timedelta
 import logging
+import os
 
-# Set up logging
-logger = logging.getLogger(__name__)
+# ---------------------- LOGGING SETUP ---------------------- #
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+LOG_DIR = os.path.join(BASE_DIR, "log")
+os.makedirs(LOG_DIR, exist_ok=True)
+
+log_formatter = logging.Formatter(
+    '%(asctime)s - %(levelname)s - %(name)s - %(message)s'
+)
+
+db_log_path = os.path.join(LOG_DIR, "db.log")
+db_error_log_path = os.path.join(LOG_DIR, "db_error.log")
+
+db_file_handler = logging.FileHandler(db_log_path)
+db_file_handler.setFormatter(log_formatter)
+db_file_handler.setLevel(logging.INFO)
+
+db_error_handler = logging.FileHandler(db_error_log_path)
+db_error_handler.setFormatter(log_formatter)
+db_error_handler.setLevel(logging.ERROR)
+
+logger = logging.getLogger("DatabaseManager")
+logger.setLevel(logging.DEBUG)
+logger.addHandler(db_file_handler)
+logger.addHandler(db_error_handler)
+# ----------------------------------------------------------- #
+
 
 def get_db_connection():
     """Get MySQL database connection"""
     try:
         connection = mysql.connector.connect(
-            host= Config.MYSQL_HOST,
+            host=Config.MYSQL_HOST,
             user=Config.MYSQL_USER,
             password=Config.MYSQL_PASSWORD,
-            database= Config.MYSQL_DB
+            database=Config.MYSQL_DB
         )
+        if connection.is_connected():
+            logger.debug("Connected to MySQL Portal DB")
         return connection
-    except mysql.connector.Error as err:
-        logger.error(f"Database connection error: {err}")
+    except Error as err:
+        logger.error(f"Portal DB connection error: {err}")
         return None
-    
+
+
 def radius_db_connection():
+    """Connection for RADIUS DB if needed"""
     try:
         connection = mysql.connector.connect(
-            host= Config.RADIUS_DB_HOST,
+            host=Config.RADIUS_DB_HOST,
             user=Config.RADIUS_DB_USER,
             password=Config.RADIUS_DB_PASSWORD,
-            database= Config.RADIUS_DB_NAME
+            database=Config.RADIUS_DB_NAME
         )
+        logger.debug("Connected to RADIUS DB (legacy method)")
         return connection
-    except mysql.connector.Error as err:
-        logger.error(f"RADIUS database connection error: {err}")
+    except Error as err:
+        logger.error(f"Legacy Radius DB connection error: {err}")
+        return None
+
 
 def generate_username(full_name):
-
     parts = full_name.lower().strip().split()
     first = parts[0][:6] if parts else 'user'
     last_initial = parts[1][0] if len(parts) > 1 else ''
-    timestamp = datetime.now().strftime('%H%M%S')[1:]  
-    random_part = str(uuid.uuid4().int)[:2] 
-    return f"{first}{last_initial}{timestamp}{random_part}"
+    timestamp = datetime.now().strftime('%H%M%S')[1:]
+    random_part = str(uuid.uuid4().int)[:2]
+    username = f"{first}{last_initial}{timestamp}{random_part}"
+    logger.info(f"Generated username: {username}")
+    return username
+
 
 def generate_password(length=10):
-    """Generate strong password"""
     alphabet = string.ascii_letters + string.digits
-    return ''.join(secrets.choice(alphabet) for _ in range(length))
+    pwd = ''.join(secrets.choice(alphabet) for _ in range(length))
+    logger.debug("Generated password")
+    return pwd
+
 
 def convert_mbps_to_bits(mbps):
-    """Convert Mbps to bits per second"""
     return mbps * 1000000
 
+
 def convert_hours_to_seconds(hours):
-    """Convert hours to seconds"""
     return int(hours * 3600)
 
-class DatabaseManager:
-    
-    @staticmethod
-    def save_user(full_name, email, mobile, mac_address, network, username, password,
-                bandwidth, expiration_hours, start_date=None, end_date=None,
-                time_interval=None, no_of_devices=None, password_sent=None):
 
+class DatabaseManager:
+
+    @staticmethod
+    def save_user(full_name, email, mobile, network, username, password,
+                  bandwidth, expiration_hours, start_date=None, end_date=None,
+                  time_interval=None, no_of_devices=None, password_sent=None):
+
+        logger.info(f"Saving user into Portal DB: {username}")
         connection = get_db_connection()
         if not connection:
             return False
 
         try:
             cursor = connection.cursor()
-
-            # If scheduled access, expiration_hours not needed
-            if start_date and end_date:
-                expiration_hours = None
-
             query = """
-            INSERT INTO users (
-                full_name, email, mobile, network,
-                username, password, bandwidth_mbps, expiration_hours,
-                is_active, created_by, start_date, end_date,
-                time_interval, no_of_devices, password_sent
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO users (
+                    full_name, email, mobile, network,
+                    username, password, bandwidth_mbps, expiration_hours,
+                    is_active, created_by, start_date, end_date,
+                    time_interval, no_of_devices, password_sent
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
 
             cursor.execute(query, (
@@ -96,19 +128,21 @@ class DatabaseManager:
             ))
 
             connection.commit()
-            logger.info(f"User {username} saved successfully!")
+            logger.info(f"User saved successfully: {username}")
             return True
-        except Exception as e:
-            logger.error(f"Error saving user: {e}")
-            return False
-        finally:
-            if connection.is_connected():
-                cursor.close()
-                connection.close()
 
+        except Exception as e:
+            logger.error(f"Error saving user {username}: {e}")
+            logger.debug(traceback.format_exc())
+            return False
+
+        finally:
+            cursor.close()
+            connection.close()
 
     @staticmethod
     def get_all_users_all_admins():
+        logger.debug("Fetching all users regardless of admin")
         connection = get_db_connection()
         if not connection:
             return []
@@ -116,346 +150,363 @@ class DatabaseManager:
         try:
             cursor = connection.cursor(dictionary=True)
             cursor.execute("SELECT * FROM users ORDER BY created_at DESC")
-            return cursor.fetchall()
-        except Exception as e:
-            logger.error(f"Error: {e}")
-            return []
-        finally:
-            if connection.is_connected():
-                cursor.close()
-                connection.close()
-     
-    @staticmethod
-    def get_all_users(admin_email):
-        connection = get_db_connection()
-        if not connection:
-            return []
-        
-        try:
-            cursor = connection.cursor(dictionary=True)
-            cursor.execute("SELECT * FROM users WHERE created_by = %s and is_deleted=FALSE",(admin_email,))
-            return cursor.fetchall()
+            users = cursor.fetchall()
+            logger.info(f"Fetched {len(users)} users")
+            return users
+
         except Exception as e:
             logger.error(f"Error fetching users: {e}")
             return []
+
         finally:
-            if connection.is_connected():
-                cursor.close()
-                connection.close()
+            cursor.close()
+            connection.close()
+
+    @staticmethod
+    def get_all_users(admin_email):
+        logger.debug(f"Fetching users created by admin: {admin_email}")
+        connection = get_db_connection()
+        if not connection:
+            return []
+
+        try:
+            cursor = connection.cursor(dictionary=True)
+            cursor.execute("SELECT * FROM users WHERE created_by = %s AND is_deleted=FALSE", (admin_email,))
+            users = cursor.fetchall()
+            logger.info(f"Admin {admin_email} -> fetched {len(users)} user(s)")
+            return users
+
+        except Exception as e:
+            logger.error(f"Error fetching admin users: {e}")
+            return []
+
+        finally:
+            cursor.close()
+            connection.close()
 
     @staticmethod
     def get_users_by_network(admin_email, network):
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT * FROM users 
-            WHERE created_by=%s AND network=%s AND is_deleted=FALSE
-            ORDER BY created_at DESC
-        """, (admin_email, network))
-        data = cursor.fetchall()
-        cursor.close()
-        conn.close()
+        logger.debug(f"Fetching users | admin={admin_email} | network={network}")
+        connection = get_db_connection()
+        if not connection:
+            return []
 
-        return data
+        try:
+            cursor = connection.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT * FROM users
+                WHERE created_by=%s AND network=%s AND is_deleted=FALSE
+                ORDER BY created_at DESC
+            """, (admin_email, network))
+            users = cursor.fetchall()
+            logger.info(f"Users fetched from network {network}: {len(users)}")
+            return users
 
-    
+        finally:
+            cursor.close()
+            connection.close()
+
     @staticmethod
     def search_users(search, admin_email, network):
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
-        patt = f"%{search}%"
-        cursor.execute("""
-            SELECT * FROM users 
-        WHERE created_by = %s AND network = %s 
-        AND (username LIKE %s OR email LIKE %s)
-        ORDER BY created_at DESC
-    """, (admin_email, network, patt, patt))
-        data = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return data
+        logger.info(f"User search -> '{search}' | Network={network}")
+        connection = get_db_connection()
+        if not connection:
+            return []
 
-    
+        try:
+            patt = f"%{search}%"
+            cursor = connection.cursor(dictionary=True)
+            cursor.execute("""
+                SELECT * FROM users
+                WHERE created_by = %s AND network = %s AND
+                (username LIKE %s OR email LIKE %s)
+                ORDER BY created_at DESC
+            """, (admin_email, network, patt, patt))
+            res = cursor.fetchall()
+            logger.info(f"Search result count: {len(res)}")
+            return res
+
+        finally:
+            cursor.close()
+            connection.close()
+
     @staticmethod
     def delete_user(user_id, hard_delete=False):
-        """Delete user and RADIUS entries"""
+        """Soft delete or full removal with RADIUS"""
+        logger.info(f"Delete request -> ID={user_id}, hard={hard_delete}")
         connection = get_db_connection()
         if not connection:
             return False
-        
+
         try:
             cursor = connection.cursor()
-            
             cursor.execute("SELECT username FROM users WHERE id = %s", (user_id,))
             result = cursor.fetchone()
+
             if not result:
+                logger.warning("User not found during delete")
                 return False
-            
+
             username = result[0]
+            logger.info(f"Deleting user: {username}")
 
             if hard_delete:
-                cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
-                logger.info(f"Deleting user {username} from wifi_portal")
+                cursor.execute("DELETE FROM users WHERE id=%s", (user_id,))
                 connection.commit()
-
-                logger.info(f"Deleted user {username} from wifi_portal")
-                success = RadiusManager.delete_user_from_radius(username)
-                if not success:
-                    logger.warning(f"Failed to delete user {username} from RADIUS DB")
-
+                logger.warning(f"Hard deleted Portal User: {username}")
             else:
-                cursor.execute("UPDATE users SET is_deleted = TRUE WHERE id = %s", (user_id,))
-                logger.info(f"Soft-deleted user {username} (hidden from Admin dashboard)")
+                cursor.execute("UPDATE users SET is_deleted=TRUE WHERE id=%s", (user_id,))
                 connection.commit()
+                logger.info(f"Soft deleted user (hidden): {username}")
 
             return True
+
         except Exception as e:
-            logger.error(f"Error deleting user from wifi_portal: {e}")
+            logger.error(f"Error deleting user: {e}")
             return False
+
         finally:
-            if connection.is_connected():
-                cursor.close()
-                connection.close()
+            cursor.close()
+            connection.close()
 
     @staticmethod
     def get_guest_users():
-        conn = mysql.connector.connect(**Config.EXTERNAL_DB_CONFIG) 
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT id, name, email, mobile, username, password FROM user_auth")
-        users = cursor.fetchall()
+        logger.debug("Fetching GUEST portal users")
+        conn = mysql.connector.connect(**Config.EXTERNAL_DB_CONFIG)
+        cursor = conn.cursor(buffered = True,dictionary=True)
+
+        cursor.execute("SELECT id AS users_id, email, mobile, username FROM user_auth")
+        data = cursor.fetchall()
+
         cursor.close()
         conn.close()
-        return users
+        logger.info(f"GUEST users count: {len(data)}")
+        return data
 
     @staticmethod
     def get_user_details(user_id):
-        connection = get_db_connection()
-        if not connection:
-            return []
+        logger.info(f"Fetching USER details: {user_id}")
+        conn = None
+        cursor = None
+
         try:
-            cursor = connection.cursor(dictionary=True)
-            cursor.execute("SELECT name,created_at FROM all_users WHERE users_id=%s",(user_id,))
-            return cursor.fetchall()
+            conn = mysql.connector.connect(**Config.EXTERNAL_DB_CONFIG)
+            cursor = conn.cursor(buffered=True,dictionary=True)
+
+            cursor.execute("""
+                SELECT
+                    ua.id,
+                    COALESCE(au.name, ua.username) AS full_name,
+                    ua.username,
+                    ua.email,
+                    ua.mobile,
+                    ua.created_at
+                FROM user_auth ua
+                LEFT JOIN all_users au ON ua.id = au.users_id
+                WHERE ua.id = %s OR ua.username = %s
+            """, (user_id, user_id))
+
+            primary = cursor.fetchone()
+            if not primary:
+                logger.warning(f"No user found: {user_id}")
+                return None
+
+            cursor.execute("""
+                SELECT name, email, mobile, created_at
+                FROM all_users
+                WHERE users_id = %s ORDER BY created_at DESC
+            """, (primary['id'],))
+
+            subs = cursor.fetchall() or []
+            logger.info(f"Found {len(subs)} sub-users for {primary['username']}")
+
+            return {
+                "primary_user": primary,
+                "sub_users": subs,
+                "total_count": len(subs)
+            }
+
         except Exception as e:
-            logger.error(f"Error fetching users: {e}")
-            return []
+            logger.error(f"Error fetching user details: {e}")
+            logger.debug(traceback.format_exc())
+            return None
+
         finally:
-            if connection.is_connected():
-                cursor.close()
-                connection.close()
+            try:
+                if cursor:
+                    cursor.close()
+            except:
+                pass
+            try:
+                if conn and conn.is_connected():
+                    conn.close()
+            except:
+                pass
 
     @staticmethod
     def get_users_with_count():
-        """
-        Fetches primary user details along with the count of their sub-registrations 
-        using a single, efficient SQL query.
-        """
+        logger.debug("Counting guest sub-users")
         conn = mysql.connector.connect(**Config.EXTERNAL_DB_CONFIG)
-        cursor = conn.cursor(dictionary=True)
-        
-        # SQL Query using LEFT JOIN and COUNT()
+        cursor = conn.cursor(dictionary=True,buffered=True)
+
         query = """
-            SELECT 
-                ua.name, 
-                ua.email, 
-                ua.mobile, 
-                ua.id AS user_id, 
-                COUNT(au.id) AS sub_user_count
-            FROM 
-                user_auth ua
-            LEFT JOIN 
-                all_users au ON ua.id = au.users_id
-            GROUP BY 
-                ua.id, ua.name, ua.email, ua.mobile;
+            SELECT ua.username, ua.email, ua.mobile, ua.id AS user_id,
+                   COUNT(au.id) AS sub_user_count
+            FROM user_auth ua
+            LEFT JOIN all_users au ON ua.id = au.users_id
+            GROUP BY ua.id
         """
-        
+
         try:
             cursor.execute(query)
-            users_with_counts = cursor.fetchall()
-            return users_with_counts
+            rows = cursor.fetchall()
+            logger.info(f"Counted {len(rows)} user(s) with sub-user count")
+            return rows
+
         except Exception as e:
-            # Handle potential SQL errors
-            logger.error(f"Error fetching users with counts: {e}")
+            logger.error(f"Count query failed: {e}")
             return []
+
         finally:
-            # Ensure connection is closed
             cursor.close()
             conn.close()
 
     @staticmethod
     def sync_user_auth_to_all_users():
-        """
-        Synchronizes users from user_auth to all_users.
-        If a user exists in user_auth but not in all_users, insert them.
-        """
-        conn = mysql.connector.connect(**Config.EXTERNAL_DB_CONFIG)
-        cursor = conn.cursor(dictionary=True)
-        
+        logger.info("Syncing guest users to all_users table")
         try:
-            # 1. Get all users from user_auth
-            cursor.execute("SELECT id, name, created_at FROM user_auth")
+            conn = mysql.connector.connect(**Config.EXTERNAL_DB_CONFIG)
+            cursor = conn.cursor(buffered=True,dictionary=True)
+
+            cursor.execute("SELECT id, username, created_at FROM user_auth")
             auth_users = cursor.fetchall()
-            
-            # 2. Get all user IDs from all_users
+
             cursor.execute("SELECT users_id FROM all_users")
-            existing_users = {row['users_id'] for row in cursor.fetchall()}
-            
-            # 3. Find missing users and insert them
-            users_to_insert = []
-            for user in auth_users:
-                if user['id'] not in existing_users:
-                    # Handle created_at being None or string
-                    created_at = user['created_at']
-                    if not created_at:
-                        created_at = datetime.now()
-                    
-                    users_to_insert.append((
-                        user['id'], 
-                        user['name'], 
-                        created_at
-                    ))
-            
-            if users_to_insert:
-                insert_query = """
+            existing = {u['users_id'] for u in cursor.fetchall()}
+
+            to_insert = []
+            for u in auth_users:
+                if u['id'] not in existing:
+                    created = u['created_at'] or datetime.now()
+                    to_insert.append((u['id'], u['username'], created))
+
+            if to_insert:
+                cursor.executemany("""
                     INSERT INTO all_users (users_id, name, created_at)
                     VALUES (%s, %s, %s)
-                """
-                cursor.executemany(insert_query, users_to_insert)
+                """, to_insert)
                 conn.commit()
-                logger.info(f"Synced {len(users_to_insert)} users from user_auth to all_users")
-                
+
+                logger.info(f"Inserted {len(to_insert)} missing guest users")
+
+            else:
+                logger.info("No missing records to sync")
+
         except Exception as e:
-            logger.error(f"Error syncing users: {e}")
-            conn.rollback()
+            logger.error(f"Failed sync: {e}")
+            logger.debug(traceback.format_exc())
+
         finally:
-            if conn.is_connected():
+            try:
                 cursor.close()
                 conn.close()
+            except:
+                pass
 
 
-class RadiusManager:   
+# ---------------------- RADIUS MANAGER ---------------------- #
+class RadiusManager:
 
     @staticmethod
     def get_connection():
-        """Get RADIUS database connection with detailed error handling"""
         try:
-            connection = mysql.connector.connect(
+            conn = mysql.connector.connect(
                 host="192.168.9.239",
                 user="radius",
                 password="Str0ngR@diusPass",
                 database="radius",
                 port=3306,
-                connection_timeout=10,
-                autocommit=False
+                connection_timeout=10
             )
-            if connection.is_connected():
-                logger.info(f"Successfully connected to RADIUS database")
-                return connection
-            else:
-                logger.error("Failed to connect to RADIUS database")
-                return None
-        except Error as e:
-            logger.error(f"Database connection error: {e}")
-            return None
+            logger.debug("Connected to RADIUS database")
+            return conn
+
         except Exception as e:
-            logger.error(f"Unexpected connection error: {e}")
-            logger.debug(f"Full traceback: {traceback.format_exc()}")
+            logger.error(f"Radius DB connection error: {e}")
+            logger.debug(traceback.format_exc())
             return None
-    
+
     @staticmethod
     def add_user_auth(username, password):
-        """Add user to radcheck table with detailed logging"""
-        logger.info(f"Adding user auth for: {username}")
+        logger.info(f"RADIUS -> Add auth for: {username}")
         connection = RadiusManager.get_connection()
         if not connection:
-            logger.error("Failed to get database connection for add_user_auth")
             return False
 
         try:
             cursor = connection.cursor()
 
-            # Check if user already exists
-            cursor.execute("SELECT COUNT(*) FROM radcheck WHERE username = %s", (username,))
-            exists = cursor.fetchone()[0]
-            if exists > 0:
-                logger.warning(f"User {username} already exists in radcheck")
+            cursor.execute("SELECT COUNT(*) FROM radcheck WHERE username=%s", (username,))
+            if cursor.fetchone()[0] > 0:
+                logger.warning(f"RADIUS auth exists: {username}")
                 return False
-
-            query = """
-            INSERT INTO radcheck (username, attribute, op, value)
-            VALUES (%s, 'Cleartext-Password', ':=', %s)
-            """
-            logger.debug(f"Executing query: {query} with values: ({username}, {password})")
-            cursor.execute(query, (username, password))
-            connection.commit()
-            logger.info(f"Successfully added user {username} to radcheck")
-            return True
-
-        except Error as e:
-            logger.error(f"MySQL Error adding to radcheck: {e}")
-            connection.rollback()
-            return False
-        except Exception as e:
-            logger.error(f"Unexpected error adding to radcheck: {e}")
-            connection.rollback()
-            return False
-        finally:
-            if connection.is_connected():
-                cursor.close()
-                connection.close()
-                logger.debug("Database connection closed for add_user_auth")
-
-    @staticmethod
-    def add_radius_controls(username, expiration_hours=None, start_time=None, end_time=None, end_datetime=None):
-        """Manage all RADIUS access rules: Expiration, Session-Timeout, Login-Time"""
-        
-        logger.info(f"Applying RADIUS rules for {username}")
-
-        connection = RadiusManager.get_connection()
-        if not connection:
-            logger.error("Failed DB connection")
-            return False
-
-        try:
-            cursor = connection.cursor()
-
-            # 1️⃣ Session Timeout (Hours → Seconds)
-            if expiration_hours:
-                session_seconds = int(float(expiration_hours) * 3600)
-                cursor.execute("""
-                    INSERT INTO radcheck (username, attribute, op, value)
-                    VALUES (%s, 'Session-Timeout', ':=', %s)
-                """, (username, session_seconds))
-                logger.info(f"Session-Timeout: {session_seconds}")
-
-            # 2️⃣ Expiration when date-time provided
-            if end_datetime:
-                expiry_dt = datetime.strptime(end_datetime, "%Y-%m-%dT%H:%M")
-                expiry_formatted = expiry_dt.strftime("%d %b %Y %H:%M")
-
-                cursor.execute("""
-                    INSERT INTO radcheck (username, attribute, op, value)
-                    VALUES (%s, 'Expiration', ':=', %s)
-                """, (username, expiry_formatted))
-                logger.info(f"Expiration: {expiry_formatted}")
-
-            # 3️⃣ Login-Time based on interval
-            if start_time and end_time:
-                lt_value = f"Al{start_time.replace(':','')}-{end_time.replace(':','')}"
-            else:
-                lt_value = "Al0000-2400"
 
             cursor.execute("""
                 INSERT INTO radcheck (username, attribute, op, value)
-                VALUES (%s, 'Login-Time', ':=', %s)
-            """, (username, lt_value))
-            logger.info(f"Login-Time: {lt_value}")
+                VALUES (%s, 'Cleartext-Password', ':=', %s)
+            """, (username, password))
 
             connection.commit()
+            logger.info(f"Auth added -> {username}")
             return True
 
         except Exception as e:
-            logger.error(f"RADIUS Error: {e}")
+            logger.error(f"Error adding RADIUS auth: {e}")
+            connection.rollback()
+            return False
+
+        finally:
+            cursor.close()
+            connection.close()
+
+    @staticmethod
+    def add_radius_controls(username, expiration_hours=None, start_time=None, end_time=None, end_datetime=None):
+        logger.info(f"RADIUS -> Add controls: {username}")
+        connection = RadiusManager.get_connection()
+        if not connection:
+            return False
+
+        try:
+            cursor = connection.cursor()
+
+            if expiration_hours:
+                seconds = int(float(expiration_hours)) * 3600
+                cursor.execute("""
+                    INSERT INTO radreply (username, attribute, op, value)
+                    VALUES (%s, 'Session-Timeout', ':=', %s)
+                """, (username, seconds))
+
+            if end_datetime:
+                dt = datetime.strptime(end_datetime, "%Y-%m-%dT%H:%M")
+                expiry_dt = dt.strftime("%d %b %Y %H:%M")
+                cursor.execute("""
+                    INSERT INTO radreply (username, attribute, op, value)
+                    VALUES (%s, 'Expiration', ':=', %s)
+                """, (username, expiry_dt))
+
+            lt_value = f"Al{start_time.replace(':','')}-{end_time.replace(':','')}" if start_time and end_time else "Al0000-2400"
+
+            cursor.execute("""
+                INSERT INTO radreply (username, attribute, op, value)
+                VALUES (%s, 'Login-Time', ':=', %s)
+            """, (username, lt_value))
+
+            connection.commit()
+            logger.info(f"Controls added -> {username}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Control error: {e}")
             connection.rollback()
             return False
 
@@ -465,244 +516,171 @@ class RadiusManager:
 
     @staticmethod
     def add_user_bandwidth(username, bandwidth_bits):
-        """Add only bandwidth limit to radreply table"""
-        logger.info(f"Adding bandwidth limit for: {username}")
-        logger.debug(f"Bandwidth: {bandwidth_bits} bits")
-
+        logger.info(f"Add bandwidth -> {bandwidth_bits} bits | User={username}")
         connection = RadiusManager.get_connection()
         if not connection:
-            logger.error("Failed to get database connection for add_user_bandwidth")
+            return False
+
+        try:
+            cursor = connection.cursor()
+            cursor.execute("""
+                INSERT INTO radreply (username, attribute, op, value)
+                VALUES (%s, 'WISPr-Bandwidth-Max-Down', ':=', %s)
+            """, (username, str(bandwidth_bits)))
+
+            cursor.execute("""
+                INSERT INTO radreply (username, attribute, op, value)
+                VALUES (%s, 'WISPr-Bandwidth-Max-Up', ':=', %s)
+            """, (username, str(bandwidth_bits)))
+
+            connection.commit()
+            return True
+
+        except Exception as e:
+            logger.error(f"Bandwidth add failed: {e}")
+            connection.rollback()
+            return False
+
+        finally:
+            cursor.close()
+            connection.close()
+
+    @staticmethod
+    def no_of_devices(username, no_of_devices):
+        connection = RadiusManager.get_connection()
+        if not connection:
             return False
 
         try:
             cursor = connection.cursor()
 
-            # Add bandwidth limit (download) to radreply
             query = """
-            INSERT INTO radreply (username, attribute, op, value)
-            VALUES (%s, 'WISPr-Bandwidth-Max-Down', ':=', %s)
+                INSERT INTO radcheck (username, attribute, op, value)
+                VALUES (%s, 'Simultaneous-Use', ':=', %s)
+                ON DUPLICATE KEY UPDATE value = VALUES(value)
             """
-            logger.debug(f"Executing bandwidth query: {query}")
-            cursor.execute(query, (username, str(bandwidth_bits)))
 
+            cursor.execute(query, (username, str(no_of_devices)))
             connection.commit()
-            logger.info(f"Successfully added bandwidth limit for user {username}")
             return True
 
-        except Error as e:
-            logger.error(f"MySQL Error adding bandwidth: {e}")
-            connection.rollback()
-            return False
         except Exception as e:
-            logger.error(f"Unexpected error adding bandwidth: {e}")
+            logger.error(f"no_of_devices add failed: {e}")
             connection.rollback()
             return False
+
         finally:
-            if connection.is_connected():
-                cursor.close()
-                connection.close()
-                logger.debug("Database connection closed for add_user_bandwidth")
+            cursor.close()
+            connection.close()
 
     @staticmethod
     def add_user_network(username, network):
-        """Add User to the radusergroup table"""
-        logger.info(f"Adding network for: {username}")
-        logger.debug(f"Assigned Network: {network}")
-
+        logger.info(f"Add network group -> {username} => {network}")
         connection = RadiusManager.get_connection()
         if not connection:
-            logger.error("Failed to get database connection for add_user_network")
             return False
 
         try:
             cursor = connection.cursor()
-
-            query = """
-            INSERT INTO radusergroup (username, groupname, priority)
-            VALUES (%s,%s,'0')
-            """
-            logger.debug(f"Executing network query: {query}")
-            cursor.execute(query, (username, network))
+            cursor.execute("""
+                INSERT INTO radusergroup (username, groupname, priority)
+                VALUES (%s,%s,'0')
+            """, (username, network))
 
             connection.commit()
-            logger.info(f"Successfully added network for user {username}")
             return True
 
-        except Error as e:
-            logger.error(f"MySQL Error adding network: {e}")
-            connection.rollback()
-            return False
         except Exception as e:
-            logger.error(f"Unexpected error adding network: {e}")
-            logger.debug(f"Full traceback: {traceback.format_exc()}")
+            logger.error(f"Network add failed: {e}")
             connection.rollback()
             return False
+
         finally:
-            if connection.is_connected():
-                cursor.close()
-                connection.close()
-                logger.debug("Database connection closed for add_user_network")
-
-
-    @staticmethod
-    def create_user_complete(username, password, bandwidth_mbps, expiration_hours):
-        """Create a complete user with auth, expiration, and bandwidth"""
-        logger.info(f"Creating complete user: {username}")
-
-        # Add authentication
-        if not RadiusManager.add_user_auth(username, password):
-            logger.error(f"Failed to add authentication for {username}")
-            return False
-
-        # Add expiration timeout
-        if not RadiusManager.add_user_expiration(username, expiration_hours):
-            logger.error(f"Failed to add expiration for {username}")
-            # Cleanup: remove auth entry
-            RadiusManager.delete_user_from_radius(username)
-            return False
-
-        # Add bandwidth limit
-        bandwidth_bits = bandwidth_mbps * 1024 * 1024  # Convert Mbps to bits
-        if not RadiusManager.add_user_bandwidth(username, bandwidth_bits):
-            logger.error(f"Failed to add bandwidth for {username}")
-            # Cleanup: remove auth and expiration entries
-            RadiusManager.delete_user_from_radius(username)
-            return False
-
-        logger.info(f"Successfully created complete user: {username}")
-        return True
+            cursor.close()
+            connection.close()
 
     @staticmethod
     def delete_user_from_radius(username):
-        """Delete user from radcheck,radreply and radusergroup table"""
+        logger.warning(f"RADIUS -> Delete user: {username}")
         connection = RadiusManager.get_connection()
         if not connection:
             return False
 
         try:
             cursor = connection.cursor()
-
-            # Delete from radcheck
-            cursor.execute("DELETE FROM radcheck WHERE username = %s", (username,))
-            logger.info(f"Deleted {username} from radcheck")
-
-            # Delete from radreply
-            cursor.execute("DELETE FROM radreply WHERE username = %s", (username,))
-            logger.info(f"Deleted {username} from radreply")
-
-            # Delete from radusergroup
-            cursor.execute("DELETE FROM radusergroup WHERE username = %s", (username,))
-            logger.info(f"Deleted {username} from radusergroup")
-
+            cursor.execute("DELETE FROM radcheck WHERE username=%s", (username,))
+            cursor.execute("DELETE FROM radreply WHERE username=%s", (username,))
+            cursor.execute("DELETE FROM radusergroup WHERE username=%s", (username,))
             connection.commit()
             return True
 
         except Exception as e:
-            logger.error(f"Error deleting user {username} from RADIUS DB: {e}")
+            logger.error(f"Delete failed: {e}")
             connection.rollback()
             return False
-        finally:
-            if connection.is_connected():
-                cursor.close()
-                connection.close()
 
+        finally:
+            cursor.close()
+            connection.close()
 
     @staticmethod
     def get_user_expiration(username):
-        """Get user expiration date"""
+        logger.debug(f"Fetching expiration -> {username}")
         connection = RadiusManager.get_connection()
         if not connection:
             return None
 
         try:
             cursor = connection.cursor()
-            query = """
-            SELECT value FROM radcheck
-            WHERE username = %s AND attribute = 'Expiration'
-            """
-            cursor.execute(query, (username,))
+            cursor.execute("""
+                SELECT value FROM radcheck WHERE username=%s AND attribute='Expiration'
+            """, (username,))
             result = cursor.fetchone()
-
             return result[0] if result else None
+
         except Exception as e:
-            logger.error(f"Error getting expiration: {e}")
+            logger.error(f"Expiration fetch failed: {e}")
             return None
+
         finally:
-            if connection.is_connected():
-                cursor.close()
-                connection.close()
-
-    @staticmethod
-    def update_user_expiration(username, new_expiration_hours):
-        """Update user expiration"""
-        connection = RadiusManager.get_connection()
-        if not connection:
-            return False
-
-        try:
-            cursor = connection.cursor()
-
-            # Calculate new expiration date
-            new_expiration_date = datetime.now() + timedelta(hours=new_expiration_hours)
-            expiration_string = new_expiration_date.strftime("%B %d %Y %H:%M:%S")
-
-            # Update expiration in radcheck
-            query = """
-            UPDATE radcheck SET value = %s
-            WHERE username = %s AND attribute = 'Expiration'
-            """
-            cursor.execute(query, (expiration_string, username))
-            connection.commit()
-
-            logger.info(f"Updated expiration for {username} to: {expiration_string}")
-            return True
-        except Exception as e:
-            logger.error(f"Error updating expiration: {e}")
-            connection.rollback()
-            return False
-        finally:
-            if connection.is_connected():
-                cursor.close()
-                connection.close()
+            cursor.close()
+            connection.close()
 
     @staticmethod
     def authenticate_user(username, password):
-        """Authenticate user against RADIUS"""
+        logger.debug(f"Auth check -> {username}")
         connection = RadiusManager.get_connection()
         if not connection:
             return False
 
         try:
             cursor = connection.cursor()
-            query = """
-            SELECT value FROM radcheck
-            WHERE username = %s AND attribute = 'Cleartext-Password'
-            """
-            cursor.execute(query, (username,))
+            cursor.execute("""
+                SELECT value FROM radcheck WHERE username=%s AND attribute='Cleartext-Password'
+            """, (username,))
             result = cursor.fetchone()
-
             return result and result[0] == password
+
         except Exception as e:
-            logger.error(f"Error authenticating: {e}")
+            logger.error(f"Auth error: {e}")
             return False
+
         finally:
-            if connection.is_connected():
-                cursor.close()
-                connection.close()
+            cursor.close()
+            connection.close()
 
     @staticmethod
     def check_user_expired(username):
-        """Check if user account has expired"""
-        expiration_str = RadiusManager.get_user_expiration(username)
-        if not expiration_str:
+        exp = RadiusManager.get_user_expiration(username)
+        if not exp:
             return False
 
         try:
-            expiration_date = datetime.strptime(expiration_str, "%B %d %Y %H:%M:%S")
-            current_date = datetime.now()
+            exp_dt = datetime.strptime(exp, "%d %b %Y %H:%M")
+            expired = datetime.now() > exp_dt
+            logger.info(f"Expire check -> User={username}, Expired={expired}")
+            return expired
 
-            return current_date > expiration_date
         except Exception as e:
-            logger.error(f"Error checking expiration: {e}")
+            logger.error(f"Expiration check error: {e}")
             return False
-

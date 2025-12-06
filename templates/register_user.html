@@ -22,30 +22,7 @@
                             <div class="mb-3">
                                 <label class="form-label">Email *</label>
                                 <input type="email" class="form-control" name="email" required>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Mobile & MAC -->
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label class="form-label">Mobile Number *</label>
-                                <input type="tel" class="form-control" name="mobile" required>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Network & Speed -->
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label class="form-label">Add Network *</label>
-                                <select class="form-select" name="network" required>
-                                    <option value="">Select Network</option>
-                                    <option value="NGO">NGO Network</option>
-                                    <option value="SMVRCH">SMVRCH Network</option>
-                                </select>
+                                <div id="emailError" class="text-danger mt-1"></div>
                             </div>
                         </div>
                         <div class="col-md-6">
@@ -62,8 +39,33 @@
                         </div>
                     </div>
 
-                    <!-- Scheduled Date Access -->
+                    <!-- Mobile & MAC -->
                     <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Mobile Number *</label>
+                                <input type="tel" class="form-control" name="mobile" maxlength="10" pattern="[0-9]{10}"
+                                    required>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Network & Speed -->
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Add Network *</label>
+                                <select class="form-select" name="network" required>
+                                    <option value="">Select Network</option>
+                                    <option value="NGO">NGO Network</option>
+                                    <option value="SMVRCH">SMVRCH Network</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Scheduled Date Access -->
+                    <div class="row" id="scheduled_date">
                         <div class="col-md-6">
                             <label class="form-label">Start Date</label>
                             <input type="date" class="form-control" name="start_date" id="start_date">
@@ -75,7 +77,7 @@
                     </div>
 
                     <!-- Time Interval -->
-                    <div class="row mt-3">
+                    <div class="row mt-3" id="scheduled_time">
                         <div class="col-md-6">
                             <label class="form-label">Start Time</label>
                             <input type="time" class="form-control" name="start_time" id="start_time">
@@ -86,12 +88,12 @@
                         </div>
                     </div>
 
-                    <div class="mb-3">
+                    <div class="mb-3" id="scheduled_session_timeout">
                         <label class="form-label">Session Timeout(hrs) </label>
                         <input type="number" class="form-control" name="session_timeout" id="session_timeout">
                     </div>
 
-                    <div class="mb-3">
+                    <div class="mb-3" id="scheduled_no_of_devices">
                         <label class="form-label">No Of Devices </label>
                         <input type="number" class="form-control" name="no_of_devices" id="no_of_devices">
                     </div>
@@ -139,6 +141,116 @@
     document.getElementById('start_time').addEventListener('change', calculateSessionTimeout);
     document.getElementById('end_time').addEventListener('change', calculateSessionTimeout);
 
+    document.addEventListener('DOMContentLoaded', () => {
+
+        const networkSelect = document.querySelector('select[name="network"]');
+        const scheduleFields = document.getElementById('scheduled_date');
+        const timeFields = document.getElementById('scheduled_time');
+        const sessionTimeoutField = document.getElementById('scheduled_session_timeout');
+        const noOfDevicesField = document.getElementById('scheduled_no_of_devices');
+
+        function toggleFields() {
+            if (networkSelect.value === "SMVRCH") {
+                scheduleFields.style.display = "flex";
+                timeFields.style.display = "flex";
+                sessionTimeoutField.style.display = "block";
+                noOfDevicesField.style.display = "block";
+            } else {
+                scheduleFields.style.display = "none";
+                timeFields.style.display = "none";
+                sessionTimeoutField.style.display = "none";
+                noOfDevicesField.style.display = "none";
+
+                document.getElementById('start_date').value = "";
+                document.getElementById('end_datetime').value = "";
+                document.getElementById('start_time').value = "";
+                document.getElementById('end_time').value = "";
+                document.getElementById('session_timeout').value = "";
+            }
+        }
+
+        networkSelect.addEventListener('change', toggleFields);
+
+        toggleFields();
+
+        // Date restrictions
+        const startDateInput = document.getElementById('start_date');
+        const endDateTimeInput = document.getElementById('end_datetime');
+
+        // Set min for start_date to today
+        const today = new Date().toISOString().split('T')[0];
+        startDateInput.min = today;
+
+        // Function to update end min
+        function updateEndMin() {
+            if (startDateInput.value) {
+                endDateTimeInput.min = startDateInput.value + 'T00:00';
+            } else {
+                endDateTimeInput.min = today + 'T00:00';
+            }
+        }
+
+        // Function to toggle start_date required based on end_datetime
+        function toggleStartDateRequired() {
+            if (endDateTimeInput.value) {
+                startDateInput.setAttribute('required', 'required');
+            } else {
+                startDateInput.removeAttribute('required');
+            }
+        }
+
+        startDateInput.addEventListener('change', updateEndMin);
+        endDateTimeInput.addEventListener('change', toggleStartDateRequired);
+        endDateTimeInput.addEventListener('input', toggleStartDateRequired); // Check on input as well
+
+        updateEndMin(); // initial call
+        toggleStartDateRequired(); // initial check
+
+    });
+
+    document.addEventListener("DOMContentLoaded", function () {
+
+    const emailInput = document.getElementById("email");
+    const emailError = document.getElementById("emailError");
+
+    function validateEmail() {
+        const email = emailInput.value.trim();
+        const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[A-Za-z]{2,}$/;
+
+        // Empty check
+        if (email === "") {
+            emailError.textContent = "Email is required.";
+            emailInput.classList.add("is-invalid");
+            emailInput.classList.remove("is-valid");
+            return false;
+        }
+
+        // Format check
+        if (!emailRegex.test(email)) {
+            emailError.textContent = "Please enter a valid email address.";
+            emailInput.classList.add("is-invalid");
+            emailInput.classList.remove("is-valid");
+            return false;
+        }
+
+        // Valid input (hide error)
+        emailError.textContent = "";
+        emailInput.classList.remove("is-invalid");
+        emailInput.classList.add("is-valid");
+        return true;
+    }
+
+    // Show error only when user leaves the field
+    emailInput.addEventListener("blur", validateEmail);
+
+    // Hide error automatically when corrected
+    emailInput.addEventListener("input", function () {
+        if (validateEmail()) {
+            emailError.textContent = "";
+        }
+    });
+
+});
 
 </script>
 
